@@ -1,6 +1,6 @@
 """
 大学生财务管理系统 - Campus Finance Tracker v10.1 (稳定修复版)
-修复：新用户注册登录崩溃问题
+修复：新用户注册登录崩溃问题 / settings.get() 报错 / 重置初始化崩溃
 运行：streamlit run app2.0.py
 """
 
@@ -18,7 +18,7 @@ warnings.filterwarnings('ignore')
 from supabase import create_client, Client
 
 SUPABASE_URL = "https://jqlpbpjgrggamrhbwixs.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpxbHBicGpncmdnYW1yaGJ3aXhzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2NDM2MjYsImV4cCI6MjA5MDIxOTYyNn0.BzMtCDRoNcy7oDVeT_lZ-UOS4uNI_9JdfB2RcfMPdxg"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsJlZiI6ImpxbHBicGpncmdnYW1yaGJ3aXhzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2NDM2MjYsImV4cCI6MjA5MDIxOTYyNn0.BzMtCDRoNcy7oDVeT_lZ-UOS4uNI_9JdfB2RcfMPdxg"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -346,7 +346,9 @@ def load_settings(username=None):
     try:
         res = supabase.table("settings").select("*").eq("username", username).execute()
         if res.data:
-            d.update(res.data[0])
+            loaded_data = res.data[0]
+            if isinstance(loaded_data, dict):
+                d.update(loaded_data)
     except:
         pass
     return d
@@ -1123,9 +1125,11 @@ def render_sidebar(settings):
 
         st.markdown("**🎨 主题**")
         theme_keys = list(THEMES.keys())
-        cur_theme = settings.get("theme", "极光紫")
+        # 安全获取主题，永远不会报错
+        cur_theme = settings.get("theme", "极光紫") if isinstance(settings, dict) else "极光紫"
         if cur_theme not in theme_keys: cur_theme = "极光紫"
         theme = st.selectbox("主题", theme_keys, index=theme_keys.index(cur_theme))
+
         layout = st.radio("布局", ["宽松", "紧凑"], index=["宽松", "紧凑"].index(settings.get("layout", "宽松")),
                           horizontal=True)
         sort_opts = ["日期降序", "日期升序", "金额降序", "金额升序"]
@@ -1167,11 +1171,14 @@ def render_sidebar(settings):
         st.divider()
         st.markdown("**🗄️ 数据操作**")
         if st.button("🏁 重置账户初始化", use_container_width=True, type="secondary"):
-            s2 = load_settings(username);
+            # 修复：安全加载+保存settings，永远不会变成None
+            s2 = load_settings(username)
             s2["wallets_initialized"] = False
             save_settings(s2, username)
-            st.session_state.wallets_initialized = False;
+            st.session_state.settings = s2
+            st.session_state.wallets_initialized = False
             st.rerun()
+
         if st.button("🗑️ 清空所有记录", use_container_width=True, type="secondary"):
             if st.session_state.get("confirm_clear"):
                 supabase.table("records").delete().eq("username", username).execute()
@@ -1222,7 +1229,11 @@ def main():
         return
 
     username = st.session_state.username
-    settings = st.session_state.get("settings") or load_settings(username)
+    # 终极修复：强制保证 settings 永远是字典，不可能为 None
+    settings = st.session_state.get("settings")
+    if not isinstance(settings, dict):
+        settings = load_settings(username)
+        st.session_state.settings = settings
 
     # 修复：新用户没有钱包数据 → 自动创建空钱包
     if "wallets" not in st.session_state or st.session_state.wallets is None:
