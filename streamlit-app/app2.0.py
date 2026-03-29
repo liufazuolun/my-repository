@@ -41,7 +41,7 @@ def load_auth() -> dict:
         try:
             with open(AUTH_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except:
+        except (json.JSONDecodeError, FileNotFoundError, PermissionError, UnicodeDecodeError):
             pass
     return {}
 
@@ -265,7 +265,7 @@ def load_wallets(username=None):
         try:
             with open(fname, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except:
+        except (json.JSONDecodeError, FileNotFoundError, PermissionError, UnicodeDecodeError):
             pass
     return {w: 0.0 for w in WALLET_NAMES}
 
@@ -309,7 +309,7 @@ def load_settings(username=None):
             with open(fname, "r", encoding="utf-8") as f:
                 saved = json.load(f)
             d.update(saved)
-        except:
+        except (json.JSONDecodeError, FileNotFoundError, PermissionError, UnicodeDecodeError):
             pass
     return d
 
