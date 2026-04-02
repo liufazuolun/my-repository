@@ -284,17 +284,22 @@ def load_data(username=None):
             if not df.empty:
                 df["date"] = pd.to_datetime(df["date"])
             return df
-        except Exception as e:
+        except (json.JSONDecodeError, FileNotFoundError, PermissionError, UnicodeDecodeError, ValueError) as e:
             st.error(f"数据加载失败：{e}")
     return pd.DataFrame(columns=["id","type","category","amount","date","note","payment_method"])
 
 def save_data(df, username=None):
     fname = user_data_file(username) if username else DATA_FILE
-    r = df.copy()
-    if not r.empty:
-        r["date"] = r["date"].dt.strftime("%Y-%m-%d")
+    records = df.to_dict("records")
+    # 处理日期格式
+    for rec in records:
+        if isinstance(rec["date"], (pd.Timestamp, datetime)):
+            rec["date"] = rec["date"].strftime("%Y-%m-%d")
+        elif not isinstance(rec["date"], str):
+            # 如果不是字符串，转换为字符串
+            rec["date"] = str(rec["date"])
     with open(fname, "w", encoding="utf-8") as f:
-        json.dump(r.to_dict("records"), f, ensure_ascii=False, indent=2)
+        json.dump(records, f, ensure_ascii=False, indent=2)
 
 def load_settings(username=None):
     d = {
@@ -864,11 +869,12 @@ def render_records_management(df, settings, theme_name):
                 "type": tx_type, "category": cat, "amount": round(amount, 2),
                 "date": pd.Timestamp(tx_date), "note": note, "payment_method": payment
             }])
-            st.session_state.df = pd.concat([st.session_state.df, new_row], ignore_index=True)
-            save_data(st.session_state.df, username)
-
+            # 先计算建议，再保存
             exp_all     = st.session_state.df[st.session_state.df["type"] == "支出"]
             advice_text = get_record_advice(new_row.iloc[0], exp_all)
+
+            st.session_state.df = pd.concat([st.session_state.df, new_row], ignore_index=True)
+            save_data(st.session_state.df, username)
             st.success(f"✅ {tx_type} · {cat} · {fmt(amount)}  →  {payment} 余额：{fmt(wallets[payment])}")
             st.info(f"💡 {advice_text}")
             if tx_type == "支出":
