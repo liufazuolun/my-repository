@@ -231,26 +231,31 @@ CATEGORY_AMOUNT_RULES = [
 ]
 
 def detect_irrational(row):
-    if row.get("type") == "收入":
+    # 安全处理数据
+    try:
+        if row.get("type") == "收入":
+            return []
+        note   = str(row.get("note", "")).strip()
+        cat    = str(row.get("category", ""))
+        amount = float(row.get("amount", 0))
+        result = []
+        for rule in IRRATIONAL_RULES:
+            apply_cats = rule.get("apply_cats")
+            if apply_cats is not None and cat not in apply_cats:
+                continue
+            if rule.get("amount_threshold", 0) > 0 and amount < rule["amount_threshold"]:
+                continue
+            if any(kw in note for kw in rule["keywords"]):
+                result.append(f"{rule['icon']} {rule['msg']}")
+        for rule in CATEGORY_AMOUNT_RULES:
+            if cat == rule["cat"] and amount >= rule["threshold"]:
+                result.append(f"{rule['icon']} {rule['msg']}")
+        if SUBCAT_PRIORITY.get(cat, 3) == 5 and amount >= 50:
+            result.append(f"⚠️ 「{cat}」属于可省略消费，单次支出{amount:.0f}元，请反思是否真有必要。")
+        return result
+    except (KeyError, ValueError, TypeError) as e:
+        # 如果任何数据异常，返回空列表
         return []
-    note   = str(row.get("note", "")).strip()
-    cat    = str(row.get("category", ""))
-    amount = float(row.get("amount", 0))
-    result = []
-    for rule in IRRATIONAL_RULES:
-        apply_cats = rule.get("apply_cats")
-        if apply_cats is not None and cat not in apply_cats:
-            continue
-        if rule.get("amount_threshold", 0) > 0 and amount < rule["amount_threshold"]:
-            continue
-        if any(kw in note for kw in rule["keywords"]):
-            result.append(f"{rule['icon']} {rule['msg']}")
-    for rule in CATEGORY_AMOUNT_RULES:
-        if cat == rule["cat"] and amount >= rule["threshold"]:
-            result.append(f"{rule['icon']} {rule['msg']}")
-    if SUBCAT_PRIORITY.get(cat, 3) == 5 and amount >= 50:
-        result.append(f"⚠️ 「{cat}」属于可省略消费，单次支出{amount:.0f}元，请反思是否真有必要。")
-    return result
 
 # ============================================================
 # 持久化（多用户独立文件）
@@ -344,7 +349,11 @@ def get_period_df(df, period, cs=None, ce=None):
         s = pd.Timestamp(cs); e = pd.Timestamp(ce) + timedelta(days=1)
     else:
         s = now.replace(day=1, hour=0, minute=0, second=0); e = now
-    return df[(df["date"] >= pd.Timestamp(s)) & (df["date"] <= pd.Timestamp(e))]
+    # 确保 DataFrame 有 date 列
+    if "date" not in df.columns:
+        return df
+    filtered = df[(df["date"] >= pd.Timestamp(s)) & (df["date"] <= pd.Timestamp(e))]
+    return filtered
 
 def fmt(v):    return f"¥{v:,.2f}"
 def tc(n):     return THEMES.get(n, THEMES["极光紫"])
@@ -598,9 +607,13 @@ def render_wallet_panel(theme_name):
 # ============================================================
 def render_summary_cards(df, theme_name):
     t = tc(theme_name)
-    income  = df[df["type"] == "收入"]["amount"].sum()
-    expense = df[df["type"] == "支出"]["amount"].sum()
-    balance = income - expense
+    # 安全地处理空数据
+    if df.empty or "type" not in df.columns or "amount" not in df.columns:
+        income = expense = balance = 0.0
+    else:
+        income  = df[df["type"] == "收入"]["amount"].sum()
+        expense = df[df["type"] == "支出"]["amount"].sum()
+        balance = income - expense
     bcol = t["income"] if balance >= 0 else t["expense"]
     total_assets = sum(st.session_state.wallets.values())
     c1, c2, c3, c4 = st.columns(4)
@@ -1122,7 +1135,10 @@ def main():
         return
 
     if "df" not in st.session_state:
-        st.session_state.df = load_data(username)
+        df_loaded = load_data(username)
+        st.session_state.df = df_loaded if not df_loaded.empty else pd.DataFrame(columns=["id","type","category","amount","date","note","payment_method"])
+    else:
+        df_loaded = st.session_state.df
     if "wallets" not in st.session_state:
         st.session_state.wallets = load_wallets(username)
 
